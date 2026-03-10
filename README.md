@@ -2,7 +2,7 @@
 
 **Automation | PowerShell**
 
-Enterprise credential audit tool for Azure Key Vault and Windows Credential Manager. Identifies expiring secrets, weak permissions, and unused credentials — outputs severity-ranked findings to console and exports CSV/JSON reports.
+Enterprise credential audit tool covering five vault sources: Azure Key Vault, Windows Credential Manager, CyberArk PAM, AWS Secrets Manager, and BeyondTrust Password Safe. Identifies expiring secrets, rotation failures, weak permissions, and unused credentials — outputs severity-ranked findings to console and exports CSV/JSON reports with CI/CD-compatible exit codes.
 
 ---
 
@@ -14,21 +14,36 @@ Enterprise credential audit tool for Azure Key Vault and Windows Credential Mana
 | Secrets expiring within warning/critical threshold | Azure Key Vault |
 | Secrets with no expiry date set | Azure Key Vault |
 | Inactive secrets (not rotated in N days) | Azure Key Vault |
-| Over-privileged access policies / RBAC roles | Azure Key Vault |
+| Over-privileged RBAC roles / access policies | Azure Key Vault |
 | Soft-delete and purge protection disabled | Azure Key Vault |
-| Stale/inactive credentials | Windows Credential Manager |
+| Stale / inactive credentials | Windows Credential Manager |
 | Credentials with empty usernames | Windows Credential Manager |
 | Suspicious credential targets | Windows Credential Manager |
 | Generic type on domain targets | Windows Credential Manager |
+| Account management failures | CyberArk PAM |
+| Auto-management disabled on accounts | CyberArk PAM |
+| Stale passwords (not rotated in N days) | CyberArk PAM |
+| Safe members with retrieve / manage permissions | CyberArk PAM |
+| Rotation not configured | AWS Secrets Manager |
+| Rotation enabled but never triggered | AWS Secrets Manager |
+| Stale rotation (last rotated > threshold) | AWS Secrets Manager |
+| Secrets scheduled for deletion | AWS Secrets Manager |
+| Inactive secrets (not accessed in N days) | AWS Secrets Manager |
+| Fallback password active (last rotation failed) | BeyondTrust Password Safe |
+| Auto-management disabled | BeyondTrust Password Safe |
+| Stale passwords (not changed in N days) | BeyondTrust Password Safe |
 
 ---
 
 ## Stack
 
-- **Language:** PowerShell 7+
+- **Language:** PowerShell 5+ (Windows PowerShell compatible)
 - **Azure:** Az.KeyVault, Az.Resources modules
 - **Windows:** Native Win32 CredEnumerate P/Invoke (no external module required)
-- **Testing:** Pester 5+
+- **CyberArk:** PVWA REST API (CyberArk / LDAP / Windows / RADIUS auth)
+- **AWS:** AWS.Tools.SecretsManager or AWSPowerShell module
+- **BeyondTrust:** Password Safe REST API (PS-Auth API Registration key)
+- **Testing:** Pester 3.x / 5.x — 103 tests
 
 ---
 
@@ -36,16 +51,20 @@ Enterprise credential audit tool for Azure Key Vault and Windows Credential Mana
 
 ```
 powershell-credential-vault-checker/
-├── Invoke-CredentialVaultChecker.ps1   # Main entry point
+├── Invoke-CredentialVaultChecker.ps1      # Main orchestrator — runs all sources
 ├── modules/
-│   ├── AzureKeyVaultAuditor.psm1       # Key Vault secret + permission audit
-│   ├── WindowsCredentialAuditor.psm1   # Windows Credential Manager audit
-│   └── ReportGenerator.psm1           # Console summary + CSV/JSON export
+│   ├── AzureKeyVaultAuditor.psm1          # Azure Key Vault secret + permission audit
+│   ├── WindowsCredentialAuditor.psm1      # Windows Credential Manager audit (Win32 P/Invoke)
+│   ├── CyberArkAuditor.psm1               # CyberArk PAM account + safe permission audit
+│   ├── AwsSecretsManagerAuditor.psm1      # AWS Secrets Manager rotation + staleness audit
+│   ├── BeyondTrustAuditor.psm1            # BeyondTrust Password Safe account audit
+│   └── ReportGenerator.psm1              # Console summary + CSV/JSON export
 ├── tests/
-│   └── CredentialVaultChecker.Tests.ps1 # Pester test suite
+│   ├── CredentialVaultChecker.Tests.ps1  # 103 Pester tests (edge cases + boundary conditions)
+│   └── RunTests.ps1                      # Test runner helper
 ├── config/
-│   └── settings.json                   # Configuration (thresholds, vault names)
-├── reports/                            # Generated reports (gitignored)
+│   └── settings.json                     # Thresholds, vault names, source toggles
+├── reports/                              # Generated reports (gitignored)
 └── README.md
 ```
 
@@ -56,14 +75,37 @@ powershell-credential-vault-checker/
 ### Prerequisites
 
 ```powershell
-# PowerShell 7+
-winget install Microsoft.PowerShell
+# PowerShell 5+ (built into Windows) or PowerShell 7+
+winget install Microsoft.PowerShell   # optional — PS7
 
-# Az module (for Azure Key Vault audit)
+# Azure Key Vault audit
 Install-Module -Name Az -Scope CurrentUser -Repository PSGallery -Force
+
+# AWS Secrets Manager audit
+Install-Module -Name AWS.Tools.SecretsManager -Scope CurrentUser -Force
 
 # Pester (for running tests)
 Install-Module -Name Pester -Scope CurrentUser -Force -SkipPublisherCheck
+```
+
+### Environment Variables
+
+Set credentials via environment variables — never in config files.
+
+```powershell
+# CyberArk PAM
+$env:CYBERARK_USER     = "audit-svc-account"
+$env:CYBERARK_PASSWORD = "your-password"
+
+# BeyondTrust Password Safe
+$env:BEYONDTRUST_API_KEY = "your-api-registration-key"
+$env:BEYONDTRUST_RUNAS   = "audit-username"
+
+# AWS (standard credential chain — any of these)
+$env:AWS_ACCESS_KEY_ID     = "AKIA..."
+$env:AWS_SECRET_ACCESS_KEY = "..."
+$env:AWS_DEFAULT_REGION    = "us-east-1"
+# or use: $env:AWS_PROFILE = "your-profile"
 ```
 
 ### Configure
@@ -78,6 +120,25 @@ Edit `config/settings.json`:
     "ExpiryWarningDays": 30,
     "CriticalExpiryDays": 7,
     "InactiveThresholdDays": 90
+  },
+  "CyberArk": {
+    "PvwaUrl": "https://pvwa.your-domain.com",
+    "AuthType": "CyberArk",
+    "SafesToAudit": [],
+    "InactiveThresholdDays": 90,
+    "AuditAccounts": true,
+    "AuditSafePermissions": true
+  },
+  "AwsSecretsManager": {
+    "Region": "us-east-1",
+    "InactiveThresholdDays": 90,
+    "RotationWarningDays": 30,
+    "ExcludeNamePatterns": ["internal/temp/*"]
+  },
+  "BeyondTrust": {
+    "BaseUrl": "https://passwordsafe.your-domain.com",
+    "InactiveThresholdDays": 90,
+    "SystemFilter": []
   }
 }
 ```
@@ -87,17 +148,22 @@ Edit `config/settings.json`:
 ## Usage
 
 ```powershell
-# Full audit (Azure Key Vault + Windows Credential Manager)
+# Full audit — all five sources
 .\Invoke-CredentialVaultChecker.ps1
 
-# Audit specific vaults
-.\Invoke-CredentialVaultChecker.ps1 -VaultNames "prod-vault", "staging-vault"
-
-# Windows Credential Manager only (no Azure)
+# Skip specific sources
 .\Invoke-CredentialVaultChecker.ps1 -SkipAzure
-
-# Azure only, skip Windows
 .\Invoke-CredentialVaultChecker.ps1 -SkipWindows
+.\Invoke-CredentialVaultChecker.ps1 -SkipCyberArk
+.\Invoke-CredentialVaultChecker.ps1 -SkipAws
+.\Invoke-CredentialVaultChecker.ps1 -SkipBeyondTrust
+
+# Azure + CyberArk only
+.\Invoke-CredentialVaultChecker.ps1 -SkipWindows -SkipAws -SkipBeyondTrust
+
+# AWS — specific region and profile
+.\Invoke-CredentialVaultChecker.ps1 -SkipAzure -SkipWindows -SkipCyberArk -SkipBeyondTrust `
+    -AwsRegion eu-west-1 -AwsProfile prod
 
 # Tighter expiry thresholds
 .\Invoke-CredentialVaultChecker.ps1 -ExpiryWarningDays 60 -CriticalExpiryDays 14
@@ -122,22 +188,26 @@ Edit `config/settings.json`:
 SEVERITY SUMMARY
 ----------------------------------------
   Critical        2
-  High            3
-  Medium          5
+  High            4
+  Medium          6
   Low             8
-  TOTAL          18
+  TOTAL          20
 
 SOURCE BREAKDOWN
 ----------------------------------------
-  AzureKeyVault                        12
-  WindowsCredentialManager              6
+  AzureKeyVault                          6
+  CyberArkPAM                            5
+  AwsSecretsManager                      4
+  BeyondTrustPasswordSafe                3
+  WindowsCredentialManager               2
 
 FINDING TYPES
 ----------------------------------------
-  OK                                    4
-  ExpiryWarning                         3
-  NoExpiry                              2
-  WeakPermission                        3
+  ExpiryWarning                          3
+  NoAutoManagement                       3
+  NoRotation                             2
+  WeakPermission                         2
+  FallbackPasswordActive                 1
   ...
 
 ACTIONABLE FINDINGS (Critical / High / Medium)
@@ -150,6 +220,19 @@ ACTIONABLE FINDINGS (Critical / High / Medium)
   Expiry     : EXPIRED 12 days ago
   Expiry Date: 2026-02-25
   Action     : SECRET EXPIRED. Rotate immediately and update all consumers.
+
+  [High] ManagementFailed
+  Source     : CyberArkPAM
+  Vault      : ProdSafe
+  Secret     : svc-db-account
+  Days Since Change: 142
+  Action     : CyberArk reported management failure. Check PVWA logs.
+
+  [High] FallbackPasswordActive
+  Source     : BeyondTrustPasswordSafe
+  Vault      : PROD-SQL-01
+  Secret     : sa
+  Action     : Password fallback is active. Last automated change failed.
 ```
 
 ---
@@ -166,8 +249,14 @@ Use in CI/CD:
 
 ```yaml
 - name: Credential Audit
-  run: pwsh -File ./Invoke-CredentialVaultChecker.ps1
-  # Pipeline fails if Critical or High findings exist (exit code 1 or 2)
+  run: pwsh -File ./Invoke-CredentialVaultChecker.ps1 -SkipWindows
+  env:
+    CYBERARK_USER: ${{ secrets.CYBERARK_USER }}
+    CYBERARK_PASSWORD: ${{ secrets.CYBERARK_PASSWORD }}
+    BEYONDTRUST_API_KEY: ${{ secrets.BEYONDTRUST_API_KEY }}
+    BEYONDTRUST_RUNAS: ${{ secrets.BEYONDTRUST_RUNAS }}
+    AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 ```
 
 ---
@@ -175,18 +264,23 @@ Use in CI/CD:
 ## Running Tests
 
 ```powershell
-# Run full test suite
-Invoke-Pester .\tests\CredentialVaultChecker.Tests.ps1 -Output Detailed
+# Quick run
+powershell -File .\tests\RunTests.ps1
 
-# Run with coverage
+# Full Pester output
+Invoke-Pester .\tests\CredentialVaultChecker.Tests.ps1
+
+# With code coverage
 Invoke-Pester .\tests\CredentialVaultChecker.Tests.ps1 -CodeCoverage .\modules\*.psm1
 ```
+
+103 tests covering: expiry boundary conditions, severity precedence, null date handling, special characters in data, missing optional properties, sort ordering, module exports, and all five source classifications.
 
 ---
 
 ## What I Learned
 
-Implementing Win32 `CredEnumerate` directly via C# P/Invoke in PowerShell eliminated the dependency on the CredentialManager module while handling the pointer arithmetic for marshaling the credential array — a good example of reaching into native Win32 when PowerShell abstractions fall short. The Az module's RBAC vs. legacy access policy bifurcation for Key Vaults required separate audit paths, reflecting how Azure's security model is mid-migration to RBAC-first.
+CyberArk and BeyondTrust are both mid-migration between legacy access policy models and modern RBAC — the audit logic needs to detect which model is active and branch accordingly. AWS Secrets Manager's rotation model (enabled vs. ever-triggered vs. stale) has three distinct failure states that each need separate classification logic. Implementing Win32 `CredEnumerate` directly via C# P/Invoke eliminated the CredentialManager module dependency while keeping the tool portable. Windows PowerShell 5 has subtle parser bugs that PS7 silently fixed — em dashes in double-quoted strings, nullable type annotations on parameters, and single-item `Where-Object` results without `.Count`.
 
 ---
 
