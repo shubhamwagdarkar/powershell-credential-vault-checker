@@ -1,0 +1,54 @@
+{
+  "AzureKeyVault": {
+    "SubscriptionId": "",
+    "VaultNames": [],
+    "ExpiryWarningDays": 30,
+    "CriticalExpiryDays": 7,
+    "InactiveThresholdDays": 90
+  },
+  "WindowsCredentialManager": {
+    "Enabled": true,
+    "ExcludeTypes": [],
+    "InactiveThresholdDays": 365
+  },
+  "CyberArk": {
+    "PvwaUrl": "",
+    "AuthType": "CyberArk",
+    "InactiveThresholdDays": 90,
+    "SafesToAudit": [],
+    "IgnoreSelfSigned": false,
+    "AuditAccounts": true,
+    "AuditSafePermissions": true
+  },
+  "AwsSecretsManager": {
+    "Region": "",
+    "ProfileName": "",
+    "InactiveThresholdDays": 90,
+    "RotationWarningDays": 30,
+    "ExcludeNamePatterns": []
+  },
+  "BeyondTrust": {
+    "BaseUrl": "",
+    "InactiveThresholdDays": 90,
+    "SystemFilter": []
+  },
+  "Report": {
+    "OutputDirectory": "reports",
+    "ExportCsv": true,
+    "ExportJson": true,
+    "OpenAfterGeneration": false
+  },
+  "Severity": {
+    "ExpiredSecret": "Critical",
+    "CriticalExpiry": "High",
+    "ExpiryWarning": "Medium",
+    "WeakPermission": "High",
+    "UnusedSecret": "Low",
+    "NoExpiry": "Medium",
+    "ManagementFailed": "High",
+    "FallbackActive": "High",
+    "NoAutoManagement": "Medium",
+    "StalePassword": "Low",
+    "NoRotation": "Medium"
+  }
+}
