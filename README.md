@@ -1,6 +1,6 @@
 # powershell-credential-vault-checker
 
-**Week 3/42 — Automation | PowerShell**
+**Automation | PowerShell**
 
 Enterprise credential audit tool for Azure Key Vault and Windows Credential Manager. Identifies expiring secrets, weak permissions, and unused credentials — outputs severity-ranked findings to console and exports CSV/JSON reports.
 
@@ -192,4 +192,4 @@ Implementing Win32 `CredEnumerate` directly via C# P/Invoke in PowerShell elimin
 
 ## Author
 
-Week 3 of 42 — Enterprise Automation Portfolio
+Enterprise Automation Portfolio
