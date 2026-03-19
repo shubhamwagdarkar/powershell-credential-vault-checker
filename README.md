@@ -6,6 +6,20 @@ Enterprise credential audit tool covering five vault sources: Azure Key Vault, W
 
 ---
 
+## 🚀 Why This Project Exists
+
+Most enterprises struggle with:
+- Expired secrets causing outages
+- Weak permissions creating security risks
+- Lack of visibility across credential systems
+
+This tool solves that by:
+→ Providing a unified audit across 5 major vault systems  
+→ Detecting security risks automatically  
+→ Integrating into CI/CD pipelines for continuous monitoring
+
+---
+
 ## What It Does
 
 | Check | Source |
