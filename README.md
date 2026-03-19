@@ -14,6 +14,7 @@ Most enterprises struggle with:
 - Lack of visibility across credential systems
 
 This tool solves that by:
+
 → Providing a unified audit across 5 major vault systems  
 → Detecting security risks automatically  
 → Integrating into CI/CD pipelines for continuous monitoring
